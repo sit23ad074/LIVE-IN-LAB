@@ -9,6 +9,15 @@
 # - Cleaned symptoms to avoid black squares
 # ------------------------------------------------------------
 
+# app.py
+# ------------------------------------------------------------
+# Cattle Disease Prediction System (Polished UI Version)
+# - Sidebar inputs for model/symptoms/vitals
+# - Tabs for results, report, and about
+# - Removed model evaluation code
+# - Styled UI for professional look
+# ------------------------------------------------------------
+
 import os
 import io
 from datetime import datetime
@@ -29,26 +38,20 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
 # ReportLab (PDF)
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    Image as RLImage,
-)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+
 # ------------------------------------------------------------
 # App Config
 # ------------------------------------------------------------
-st.set_page_config(page_title="Cattle Disease Prediction", layout="centered")
+st.set_page_config(page_title="Cattle Disease Prediction", layout="wide")
 DATA_PATH = "Training.csv"
-IMAGES_DIR = "disease_images"          # e.g. disease_images/FMD.jpg
-UNICODE_FONT_TTF = "NotoSans-Regular.ttf"   # download from Google Fonts
+IMAGES_DIR = "disease_images"
+UNICODE_FONT_TTF = "NotoSans-Regular.ttf"
 
 # ------------------------------------------------------------
 # Fonts: Register Unicode Font
@@ -119,7 +122,6 @@ def get_top3_from_probs(probs: np.ndarray, label_encoder: LabelEncoder) -> List[
     return results
 
 def clean_text_list(items: List[str]) -> List[str]:
-    """Ensure all symptom text is UTF-8 safe and printable."""
     cleaned = []
     for s in items:
         if not isinstance(s, str):
@@ -131,14 +133,8 @@ def clean_text_list(items: List[str]) -> List[str]:
 # ------------------------------------------------------------
 # PDF Builder
 # ------------------------------------------------------------
-def build_pdf(
-    model_name: str,
-    model_acc: float,
-    vitals: Dict[str, str],
-    symptoms: List[str],
-    top3: List[Tuple[str, float]],
-    top_image_path: Optional[str] = None,
-) -> io.BytesIO:
+def build_pdf(model_name: str, model_acc: float, vitals: Dict[str, str],
+              symptoms: List[str], top3: List[Tuple[str, float]], top_image_path: Optional[str] = None) -> io.BytesIO:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf)
 
@@ -216,13 +212,10 @@ def build_pdf(
     return buf
 
 # ------------------------------------------------------------
-# UI: Header
+# UI
 # ------------------------------------------------------------
-st.title("Cattle Disease Prediction System — Full Version")
+st.markdown("<h1 style='text-align: center; color: #1F618D;'>🐄 Cattle Disease Prediction System</h1>", unsafe_allow_html=True)
 
-# ------------------------------------------------------------
-# Load data
-# ------------------------------------------------------------
 if not os.path.exists(DATA_PATH):
     st.error(f"Could not find dataset: {DATA_PATH}. Place 'Training.csv' next to this file.")
     st.stop()
@@ -232,109 +225,94 @@ if "prognosis" not in df.columns:
     st.error("The dataset must contain a column named 'prognosis' as the label.")
     st.stop()
 
-# ------------------------------------------------------------
-# Split & encode once
-# ------------------------------------------------------------
 X_train, X_test, y_train, y_test, label_encoder, symptom_columns = split_and_encode(df)
 
-# ------------------------------------------------------------
-# Optional: Evaluate all models
-# ------------------------------------------------------------
-with st.expander("Evaluate All Models (optional)"):
-    if st.button("Run Evaluation"):
-        rows = []
-        for name, m in get_model_dict().items():
-            m.fit(X_train, y_train)
-            acc = accuracy_score(y_test, m.predict(X_test))
-            rows.append([name, f"{acc*100:.2f}%"])
-        eval_df = pd.DataFrame(rows, columns=["Model", "Test Accuracy"])
-        st.dataframe(eval_df, use_container_width=True)
+# Sidebar Inputs
+st.sidebar.header("⚙️ Model & Inputs")
 
-# ------------------------------------------------------------
-# Inputs
-# ------------------------------------------------------------
-st.subheader("Select Symptoms")
-selected_symptoms = st.multiselect("Choose one or more:", symptom_columns)
+selected_symptoms = st.sidebar.multiselect("Select Symptoms:", symptom_columns)
 
-st.subheader("Enter Vital Stats (for report; not used by the model unless added to Training.csv)")
-col1, col2, col3 = st.columns(3)
-with col1:
-    temperature = st.number_input("Temperature (°C)", 30.0, 45.0, value=38.5, step=0.1)
-with col2:
-    weight = st.number_input("Weight (Kg)", 50.0, 800.0, value=250.0, step=1.0)
-with col3:
-    pulse_rate = st.number_input("Pulse Rate (bpm)", 40.0, 180.0, value=70.0, step=1.0)
+st.sidebar.subheader("Vital Stats (for report)")
+temperature = st.sidebar.number_input("Temperature (°C)", 30.0, 45.0, value=38.5, step=0.1)
+weight = st.sidebar.number_input("Weight (Kg)", 50.0, 800.0, value=250.0, step=1.0)
+pulse_rate = st.sidebar.number_input("Pulse Rate (bpm)", 40.0, 180.0, value=70.0, step=1.0)
 
-# Model selection
-st.subheader("Choose Model")
-model_choice = st.selectbox("Select a model:", list(get_model_dict().keys()))
+model_choice = st.sidebar.selectbox("Choose Model:", list(get_model_dict().keys()))
+predict_btn = st.sidebar.button("🚀 Predict", use_container_width=True)
 
-# ------------------------------------------------------------
-# Predict
-# ------------------------------------------------------------
-if st.button("Predict"):
+# Main Tabs
+tabs = st.tabs(["🔍 Results", "📑 Report", "ℹ️ About"])
+
+if predict_btn:
     if len(selected_symptoms) == 0:
-        st.error("Please select at least one symptom.")
-        st.stop()
-
-    models = get_model_dict()
-    model = models[model_choice]
-    model.fit(X_train, y_train)
-
-    test_acc = accuracy_score(y_test, model.predict(X_test))
-    input_df = make_input_vector(symptom_columns, selected_symptoms)
-
-    try:
-        probs = model.predict_proba(input_df)[0]
-    except Exception as e:
-        st.error(f"This model cannot output probabilities: {e}")
-        st.stop()
-
-    top3 = get_top3_from_probs(probs, label_encoder)
-
-    st.subheader("Top-3 Predicted Diseases")
-    for rk, (d, p) in enumerate(top3, start=1):
-        st.write(f"**{rk}. {d} — {p:.2f}%**")
-
-    st.info(f"Model: **{model_choice}** | Test Accuracy: **{test_acc*100:.2f}%**")
-
-    prob_df = pd.DataFrame({"Disease": [d for d, _ in top3], "Probability (%)": [p for _, p in top3]})
-    st.subheader("Probabilities")
-    st.bar_chart(prob_df.set_index("Disease"))
-
-    top_disease = top3[0][0]
-    img_path = os.path.join(IMAGES_DIR, f"{top_disease}.jpg")
-    if os.path.exists(img_path):
-        st.image(Image.open(img_path), caption=top_disease, use_container_width=True)
+        st.error("Please select at least one symptom from the sidebar.")
     else:
-        st.warning(f"No image found for: {top_disease} (expected at {img_path})")
+        models = get_model_dict()
+        model = models[model_choice]
+        model.fit(X_train, y_train)
+        test_acc = accuracy_score(y_test, model.predict(X_test))
 
-    vitals_block = {
-        "Temperature": f"{temperature} °C",
-        "Weight": f"{weight} Kg",
-        "Pulse Rate": f"{pulse_rate} bpm",
-    }
-    pdf_buffer = build_pdf(
-        model_name=model_choice,
-        model_acc=test_acc,
-        vitals=vitals_block,
-        symptoms=selected_symptoms,
-        top3=top3,
-        top_image_path=img_path if os.path.exists(img_path) else None,
-    )
+        input_df = make_input_vector(symptom_columns, selected_symptoms)
+        probs = model.predict_proba(input_df)[0]
+        top3 = get_top3_from_probs(probs, label_encoder)
+        top_disease = top3[0][0]
 
-    st.download_button(
-        "Download PDF Report",
-        data=pdf_buffer,
-        file_name=f"Cattle_Disease_Report_{top_disease}.pdf",
-        mime="application/pdf",
-        type="primary",
-    )
+        # Results Tab
+        with tabs[0]:
+            st.success(f"Most likely disease: **{top_disease} ({top3[0][1]:.2f}%)**")
+            st.metric("Model Accuracy", f"{test_acc*100:.2f}%")
 
-# ------------------------------------------------------------
-# Footer tip
-# ------------------------------------------------------------
-st.caption(
-    "Tip: Put images in a folder named 'disease_images' with filenames exactly matching disease labels "
-    "(e.g., 'FMD.jpg'). Place 'NotoSans-Regular.ttf' in the same folder for full Unicode PDF output."
-)
+            prob_df = pd.DataFrame({"Disease": [d for d, _ in top3], "Probability (%)": [p for _, p in top3]})
+            st.subheader("Prediction Probabilities")
+            st.bar_chart(prob_df.set_index("Disease"))
+
+            img_path = os.path.join(IMAGES_DIR, f"{top_disease}.jpg")
+            if os.path.exists(img_path):
+                st.image(Image.open(img_path), caption=top_disease, use_container_width=True)
+            else:
+                st.warning(f"No image found for: {top_disease}")
+
+        # Report Tab
+        with tabs[1]:
+            vitals_block = {
+                "Temperature": f"{temperature} °C",
+                "Weight": f"{weight} Kg",
+                "Pulse Rate": f"{pulse_rate} bpm",
+            }
+            pdf_buffer = build_pdf(
+                model_name=model_choice,
+                model_acc=test_acc,
+                vitals=vitals_block,
+                symptoms=selected_symptoms,
+                top3=top3,
+                top_image_path=img_path if os.path.exists(img_path) else None,
+            )
+            st.download_button(
+                "⬇️ Download PDF Report",
+                data=pdf_buffer,
+                file_name=f"Cattle_Disease_Report_{top_disease}.pdf",
+                mime="application/pdf",
+                type="primary",
+            )
+
+# About Tab
+with tabs[2]:
+    st.markdown("""
+    ### About this App  
+    This system predicts **cattle diseases** using ML models trained on symptoms.  
+    - Select symptoms from the sidebar  
+    - Choose a model  
+    - Enter vitals for report  
+    - Get predictions + PDF report  
+
+    **Tip**: Place cattle disease images inside `disease_images/` with filenames matching disease labels.  
+    Place `NotoSans-Regular.ttf` in the project folder for Unicode PDF support.
+    """)
+
+# Footer
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
